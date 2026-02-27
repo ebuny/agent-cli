@@ -223,35 +223,133 @@ hl wolf run --preset conservative
 
 ### House — TEE Clearing House Agent
 
-Connect to a running [Tee-work](https://github.com/Nunchi-trade/Tee-work-) house enclave and compete as a market-making agent in commit-reveal clearing rounds.
+This CLI implements the **agent side** of the [Nunchi / Daeji](https://github.com/Nunchi-trade/Tee-work-) architecture. Agents running market-making strategies connect to a House Enclave — a TEE-secured clearing venue — and compete for admission, flow, and revenue.
 
-**How it works:**
-1. Agent registers a strategy (source hash for admission control)
-2. Connects to the house relay via HTTP
-3. Each round: runs strategy → seals orders via ECIES to enclave pubkey → commits hash → reveals ciphertext
-4. House clears all agent orders via supply/demand crossing inside the TEE
+#### The 3-Layer Stack
+
+The House sits on a Hardware / Math / Proof stack:
+
+| Layer | Component | Purpose |
+|-------|-----------|---------|
+| Hardware | TEE execution + attestation | "Can't be evil" execution integrity |
+| Math | Off-chain solve + on-chain verify | "Proof of optimality" cooperative clearing |
+| Proof | ISFR + agent proofs + leaderboard | Durable data asset + reputational primitives |
+
+#### Agent → House Pipeline
+
+```
+┌─────────────┐     ┌──────────────┐     ┌──────────────────┐     ┌───────────────┐
+│  Agent CLI   │────▶│ Strategy     │────▶│  ECIES Seal      │────▶│ House Relay    │
+│  (this repo) │     │ on_tick()    │     │  to enclave      │     │ /v1/commit     │
+│              │     │ → Orders     │     │  pubkey           │     │ /v1/reveal     │
+└─────────────┘     └──────────────┘     └──────────────────┘     └───────┬───────┘
+                                                                          │
+                    ┌──────────────┐     ┌──────────────────┐     ┌───────▼───────┐
+                    │  Fills +     │◀────│  KKT Certificate │◀────│ Cooperative   │
+                    │  Positions   │     │  (proof of       │     │ Clearing      │
+                    │  Scoreboard  │     │   optimality)    │     │ inside TEE    │
+                    └──────────────┘     └──────────────────┘     └───────────────┘
+```
+
+**Step-by-step flow per round:**
+
+1. **Register** — Agent hashes strategy source via `inspect.getsource()` (SHA-256). The House uses this for admission control and attribution.
+2. **Connect** — `GET /v1/identity` fetches the enclave's secp256k1 public key and TEE attestation.
+3. **Receive snapshot** — `GET /v1/snapshot` returns the current round ID, phase, and `MarketSnapshot` with mid price, bid/ask, funding rate, OI.
+4. **Run strategy** — The agent's `on_tick()` produces `StrategyDecision`s, converted to `Order` objects with Decimal precision.
+5. **Seal** — Orders are ECIES-encrypted (secp256k1 + AES-256-GCM) to the enclave's public key. Only the TEE can decrypt.
+6. **Commit** — `POST /v1/commit` with `SHA-256(ciphertext)`. The hash locks the agent's orders before anyone reveals.
+7. **Reveal** — `POST /v1/reveal` with the full ciphertext. The enclave verifies `SHA-256(ciphertext) == commitment`.
+8. **Clear** — The House decrypts all bundles inside the TEE and runs cooperative clearing: supply/demand crossing that maximizes surplus. Produces fills + KKT certificates (dual-variable proof of optimality).
+9. **Verify** — Agent fetches `GET /v1/result/{round_id}` with fills, clearing prices, and KKT certificates. Verification is O(n^2) checks, not O(n^3) solving.
+
+#### Commit-Reveal Protocol
+
+| Phase | Agent Action | Endpoint | Description |
+|-------|-------------|----------|-------------|
+| IDLE | Poll | `GET /v1/snapshot` | Wait for round to enter commit phase |
+| COMMIT | Seal + hash | `POST /v1/commit` | Submit `SHA-256(ciphertext)` as binding commitment |
+| REVEAL | Send bundle | `POST /v1/reveal` | Submit ECIES-encrypted order bundle |
+| CLEARING | Wait | — | House decrypts, crosses orders, generates KKT certs |
+| DONE | Fetch | `GET /v1/result/{id}` | Retrieve fills, clearing prices, certificates |
+
+#### Why Commit-Reveal?
+
+Without it, agents could see others' orders and front-run. The two-phase protocol ensures **execution confidentiality**: orders are encrypted to the TEE's key during commit, so no one (not even the relay operator) can read them until the reveal phase. The TEE decrypts and clears atomically.
+
+#### Cooperative Clearing
+
+The House doesn't just match — it **cooperatively clears**:
+
+- **Off-chain solve**: finds the surplus-maximizing allocation across all agent orders
+- **KKT certificates**: each clearing round produces dual variables (lambda, mu) that prove optimality — anyone can verify in O(n^2)
+- **Fallback ladder**: if cooperative clearing fails, deterministic pruning removes lowest-priority orders and retries. If still infeasible → external hedge → safe mode.
+- **Pruning rule**: orders are priority-sorted by `(priorityFee, timestamp, txHash)`. The imbalance side's lowest-priority orders are removed first.
+
+#### House Admission ("Enter the House")
+
+Agents don't get House access by default — they **earn it** through the leaderboard:
+
+1. **Run as Liquidity Senate agent** — produce verifiable quotes/trades via this CLI
+2. **Build reputation** — the leaderboard scores agents on Sharpe, uptime, market quality (spread, depth), risk discipline, and integrity (TEE attestation rate)
+3. **Qualify** — top agents by epoch thresholds earn a `HouseSeatCertificate`
+4. **Enter** — the House Enclave loads the admitted strategy via a strategy VM (bundle + signature verification)
+
+House seats are **revocable**: immediate revocation for fraud, epoch-based renewal for uptime/quality, slashing for mandate violations.
+
+#### Agent Roles
+
+| Role | Description |
+|------|-------------|
+| **MM Agent** | Quotes two-sided markets, manages inventory bands |
+| **RFQ Agent** | Responds privately to block-size RFQs; hedges externally |
+| **Hedge Agent** | Reduces exposure per deterministic mandate (delta, DV01, funding) |
+
+#### Model Registry
+
+Strategies are versioned via source-code hashing:
+
+```python
+from sdk.strategy_sdk.registry import ModelRegistry
+
+registry = ModelRegistry()
+bundle = registry.register("strategies.avellaneda_mm:AvellanedaStoikovMM")
+# bundle.source_hash = SHA-256(inspect.getsource(cls))
+# bundle.strategy_id = "AvellanedaStoikovMM"
+
+# Verify a strategy hasn't been tampered with
+assert registry.verify(bundle)  # re-hashes and compares
+```
+
+The `strategy_artifact_hash` is included in every `DecisionEnvelope` for per-decision attribution and auditability.
+
+#### Usage
 
 ```bash
 # Join a house enclave with avellaneda_mm
 hl house join avellaneda_mm --url http://house:8080 --agent-id my-agent
 
-# Register strategy hash before joining
+# Register strategy hash before joining (for admission control)
 hl house join avellaneda_mm --url http://house:8080 --register
 
 # Check scoreboard
 hl house status --url http://house:8080
+
+# Custom poll interval (default 2s)
+hl house join simple_mm --url http://house:8080 --poll 5
 ```
 
-**Commit-reveal protocol:**
+#### API Endpoints (Agent → Relay)
 
-| Phase | Agent Action | Description |
-|-------|-------------|-------------|
-| COMMIT | POST /v1/commit | Submit SHA-256(ciphertext) as commitment |
-| REVEAL | POST /v1/reveal | Submit ECIES-encrypted order bundle |
-| CLEARING | (wait) | House decrypts and crosses orders inside TEE |
-| RESULT | GET /v1/result/{round_id} | Fetch fills and KKT certificates |
-
-**Model Registry:** Strategies are hashed via `inspect.getsource()` for reproducibility and admission control. The house can verify that an agent is running an approved strategy version.
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/v1/identity` | Enclave public key + TEE attestation |
+| GET | `/v1/snapshot` | Current round ID, phase, market data |
+| POST | `/v1/commit` | Submit commitment hash |
+| POST | `/v1/reveal` | Submit encrypted order bundle |
+| GET | `/v1/result/{round_id}` | Fills, clearing prices, KKT certificates |
+| GET | `/v1/positions/{agent_id}` | Agent's current positions |
+| GET | `/v1/scoreboard` | Leaderboard rankings |
 
 ## Custom Strategies
 
