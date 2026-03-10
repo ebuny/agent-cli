@@ -45,4 +45,4 @@ Homepage = "https://github.com/Nunchi-trade/agent-cli"
 Repository = "https://github.com/Nunchi-trade/agent-cli"
 
 [tool.setuptools.packages.find]
-include = ["cli*", "strategies*", "sdk*", "common*", "parent*", "modules*", "skills*"]
+include = ["cli*", "strategies*", "sdk*", "common*", "parent*", "modules*", "skills*", "quoting_engine*"]

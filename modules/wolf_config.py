@@ -78,6 +78,30 @@ class WolfConfig:
     # Instrument filters
     excluded_instruments: List[str] = field(default_factory=list)
 
+    # Research/live allocation gate
+    allocation_plan_path: str = ""
+    allocation_enforce: bool = False
+    allocation_refresh_ticks: int = 15
+
+    # Portfolio allocator (shared cap across runners)
+    portfolio_enforce: bool = False
+    portfolio_plan_path: str = ""
+    portfolio_refresh_ticks: int = 5
+    portfolio_state_db_path: str = "data/portfolio/state.db"
+    portfolio_ttl_ticks: int = 30
+    portfolio_strategy_id: str = "*"
+
+    # Execution health kill-switch
+    execution_health_enabled: bool = True
+    execution_health_max_events: int = 200
+    execution_health_min_attempts: int = 10
+    execution_health_refresh_ticks: int = 3
+    execution_health_cooldown_ticks: int = 10
+    execution_health_min_fill_ratio: float = 0.7
+    execution_health_max_api_error_rate: float = 0.2
+    execution_health_max_avg_slippage_bps: float = 35.0
+    execution_health_max_p95_slippage_bps: float = 60.0
+
     def __post_init__(self):
         if self.margin_per_slot == 0.0:
             self.margin_per_slot = self.total_budget / max(self.max_slots, 1)

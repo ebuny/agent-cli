@@ -107,8 +107,8 @@ class MoversRunner:
         stats = result.stats
         print(f"\n{'='*60}")
         print(f"MOVERS #{self.scan_count}  |  "
-              f"{stats.get('total_assets', 0)} assets → "
-              f"{stats.get('qualifying', 0)} qualifying → "
+              f"{stats.get('total_assets', 0)} assets -> "
+              f"{stats.get('qualifying', 0)} qualifying -> "
               f"{stats.get('signals_detected', 0)} signals  "
               f"(history={stats.get('history_depth', 0)})")
         print(f"{'='*60}")

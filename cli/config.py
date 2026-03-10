@@ -39,10 +39,23 @@ class TradingConfig:
 
     # Execution
     dry_run: bool = False
+    paper: bool = False
     max_ticks: int = 0
 
     # Persistence
     data_dir: str = "data/cli"
+
+    # Research/live allocation gate (single strategy runs)
+    allocation_plan_path: str = ""
+    allocation_enforce: bool = False
+    allocation_refresh_ticks: int = 15
+
+    # Portfolio allocator (shared cap across runners)
+    portfolio_plan_path: str = ""
+    portfolio_enforce: bool = False
+    portfolio_refresh_ticks: int = 10
+    portfolio_state_db_path: str = "data/portfolio/state.db"
+    portfolio_ttl_ticks: int = 30
 
     # Builder fee
     builder: Dict[str, Any] = field(default_factory=dict)

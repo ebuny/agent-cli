@@ -34,6 +34,8 @@ from cli.commands.setup import setup_app
 from cli.commands.mcp import mcp_app
 from cli.commands.skills import skills_app
 from cli.commands.journal import journal_app
+from cli.commands.research import research_app
+from cli.commands.paper import paper_app
 
 app.command("run", help="Start autonomous trading with a strategy")(run_cmd)
 app.command("status", help="Show positions, PnL, and risk state")(status_cmd)
@@ -51,6 +53,8 @@ app.add_typer(setup_app, name="setup", help="Environment validation and setup")
 app.add_typer(mcp_app, name="mcp", help="MCP server — AI agent tool discovery")
 app.add_typer(skills_app, name="skills", help="Skill discovery and registry")
 app.add_typer(journal_app, name="journal", help="Trade journal — structured position records with reasoning")
+app.add_typer(research_app, name="research", help="Historical strategy research and allocation")
+app.add_typer(paper_app, name="paper", help="Paper-mode validation and reporting")
 
 
 def main():

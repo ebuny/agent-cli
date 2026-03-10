@@ -1,0 +1,20 @@
+[Unit]
+Description=Carry Micro-Live (funding_arb + basis_arb + hedge_agent)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/agent-cli
+Environment=PLAN_PATH=/opt/agent-cli/data/research/live_allocation_plan.json
+Environment=PORTFOLIO_PLAN=/opt/agent-cli/data/research/live_allocation_plan.json
+Environment=INSTRUMENT=ETH-PERP
+Environment=MAINNET=false
+Environment=DRY_RUN=false
+Environment=PAPER=true
+EnvironmentFile=-/etc/default/agent-cli-carry
+ExecStart=/opt/agent-cli/scripts/run_carry_micro_live.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

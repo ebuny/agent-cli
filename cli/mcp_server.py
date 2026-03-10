@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import os
 from typing import Optional
 
 
@@ -19,6 +20,15 @@ def _run_hl(*args: str, timeout: int = 30) -> str:
     if result.returncode != 0 and result.stderr:
         output = output + "\n" + result.stderr.strip() if output else result.stderr.strip()
     return output or "(no output)"
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_value(name: str) -> Optional[str]:
+    value = os.environ.get(name, "").strip()
+    return value if value else None
 
 
 def create_mcp_server():
@@ -208,6 +218,18 @@ def create_mcp_server():
             args.append("--dry-run")
         if mainnet:
             args.append("--mainnet")
+        alloc_plan = _env_value("HL_ALLOC_PLAN")
+        if alloc_plan and _env_flag("HL_ALLOC_ENFORCE"):
+            args.extend(["--allocation-plan", alloc_plan, "--allocation-enforce"])
+            refresh = _env_value("HL_ALLOC_REFRESH_TICKS")
+            if refresh:
+                args.extend(["--allocation-refresh-ticks", refresh])
+        portfolio_plan = _env_value("HL_PORTFOLIO_PLAN") or alloc_plan
+        if portfolio_plan and _env_flag("HL_PORTFOLIO_ENFORCE"):
+            args.extend(["--portfolio-plan", portfolio_plan, "--portfolio-enforce"])
+            refresh = _env_value("HL_PORTFOLIO_REFRESH_TICKS")
+            if refresh:
+                args.extend(["--portfolio-refresh-ticks", refresh])
         return _run_hl(*args, timeout=max(60, (max_ticks or 10) * tick + 30))
 
     @mcp.tool()
@@ -245,6 +267,18 @@ def create_mcp_server():
             args.extend(["--max-ticks", str(max_ticks)])
         if mainnet:
             args.append("--mainnet")
+        alloc_plan = _env_value("HL_ALLOC_PLAN")
+        if alloc_plan and _env_flag("HL_ALLOC_ENFORCE"):
+            args.extend(["--allocation-plan", alloc_plan, "--allocation-enforce"])
+            refresh = _env_value("HL_ALLOC_REFRESH_TICKS")
+            if refresh:
+                args.extend(["--allocation-refresh-ticks", refresh])
+        portfolio_plan = _env_value("HL_PORTFOLIO_PLAN") or alloc_plan
+        if portfolio_plan and _env_flag("HL_PORTFOLIO_ENFORCE"):
+            args.extend(["--portfolio-plan", portfolio_plan, "--portfolio-enforce"])
+            refresh = _env_value("HL_PORTFOLIO_REFRESH_TICKS")
+            if refresh:
+                args.extend(["--portfolio-refresh-ticks", refresh])
         return _run_hl(*args, timeout=max(120, (max_ticks or 10) * 60 + 30))
 
     @mcp.tool()

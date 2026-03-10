@@ -1,0 +1,23 @@
+[Unit]
+Description=Nunchi research refresh (daily)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/agent-cli
+ExecStart=/opt/agent-cli/scripts/research_refresh.sh
+Environment=DATA_DIR=/opt/agent-cli/data
+Environment=RESEARCH_DIR=/opt/agent-cli/data/research
+Environment=NATIVE_DIR=/opt/agent-cli/data/research/native
+Environment=DATASETS_DIR=/opt/agent-cli/data/research/native/datasets
+Environment=LIVE_PLAN_PATH=/opt/agent-cli/data/research/live_allocation_plan.json
+Environment=STRATEGIES_CSV=mean_reversion,momentum_breakout,basis_arb,funding_arb,liquidation_mm
+Environment=TRAIN_SIZE=200
+Environment=VALIDATION_SIZE=50
+Environment=STEP_SIZE=50
+Environment=CAPITAL_USD=10000
+Environment=RESERVE_PCT=0.1
+Environment=MAX_STRATEGY_PCT=0.5
+
+[Install]
+WantedBy=multi-user.target

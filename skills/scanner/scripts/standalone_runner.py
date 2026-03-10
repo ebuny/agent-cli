@@ -159,9 +159,9 @@ class ScannerRunner:
         print(f"\n{'='*70}")
         print(f"SCAN #{self.scan_count}  |  BTC: {result.btc_macro.get('trend', '?')} "
               f"(EMA diff: {result.btc_macro.get('diff_pct', 0):.2f}%)")
-        print(f"Assets: {stats.get('assets_scanned', 0)} → "
-              f"{stats.get('passed_stage1', 0)} stage1 → "
-              f"{stats.get('deep_dived', 0)} deep → "
+        print(f"Assets: {stats.get('assets_scanned', 0)} -> "
+              f"{stats.get('passed_stage1', 0)} stage1 -> "
+              f"{stats.get('deep_dived', 0)} deep -> "
               f"{stats.get('qualified', 0)} qualified  "
               f"({stats.get('scan_duration_ms', 0)}ms)")
         print(f"{'='*70}")

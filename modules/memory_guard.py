@@ -53,4 +53,4 @@ class MemoryGuard:
         """Write the playbook to disk (atomic via temp file)."""
         tmp = self._playbook_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(playbook.to_dict(), indent=2, default=str))
-        tmp.rename(self._playbook_path)
+        tmp.replace(self._playbook_path)

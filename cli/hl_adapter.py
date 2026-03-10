@@ -353,3 +353,78 @@ class DirectMockProxy:
     def get_all_mids(self) -> Dict[str, str]:
         """Return mock mid prices."""
         return self._mock.get_all_mids()
+
+
+class PaperHLProxy:
+    """Mainnet paper trading — real market data, simulated fills.
+
+    Delegates all read operations (snapshots, candles, markets, mids,
+    account state) to a real ``DirectHLProxy`` connected to mainnet.
+    Intercepts ``place_order()`` to simulate an instant fill at the
+    current mid price without sending any order to the exchange.
+
+    Fill OIDs are prefixed with ``paper-`` for easy identification
+    in trade logs and HOWL reports.
+    """
+
+    def __init__(self, hl: DirectHLProxy):
+        self._hl = hl
+
+    # ── Read operations: delegate to real mainnet proxy ──────────
+
+    def get_snapshot(self, instrument: str = "ETH-PERP"):
+        return self._hl.get_snapshot(instrument)
+
+    def get_account_state(self) -> Dict:
+        return self._hl.get_account_state()
+
+    def get_candles(self, coin: str, interval: str, lookback_ms: int) -> list:
+        return self._hl.get_candles(coin, interval, lookback_ms)
+
+    def get_all_markets(self) -> list:
+        return self._hl.get_all_markets()
+
+    def get_all_mids(self) -> Dict[str, str]:
+        return self._hl.get_all_mids()
+
+    def set_leverage(self, leverage: int, coin: str = "ETH", is_cross: bool = True):
+        pass  # no-op in paper mode
+
+    # ── Write operations: simulated ──────────────────────────────
+
+    def place_order(
+        self,
+        instrument: str,
+        side: str,
+        size: float,
+        price: float,
+        tif: str = "Ioc",
+        builder: Optional[dict] = None,
+    ) -> Optional[HLFill]:
+        """Simulate an instant fill at current mid price."""
+        coin = _to_hl_coin(instrument)
+        try:
+            mids = self._hl.get_all_mids()
+            mid = float(mids.get(coin, "0"))
+            if mid <= 0:
+                log.warning("[PAPER] No mid price for %s, using submitted price", instrument)
+                mid = price
+        except Exception:
+            mid = price
+
+        fill = HLFill(
+            oid=f"paper-{int(time.time() * 1000)}",
+            instrument=instrument,
+            side=side.lower(),
+            price=Decimal(str(mid)),
+            quantity=Decimal(str(size)),
+            timestamp_ms=int(time.time() * 1000),
+        )
+        log.info("[PAPER] Simulated fill: %s %s %s @ %s", side, size, instrument, mid)
+        return fill
+
+    def cancel_order(self, instrument: str, oid: str) -> bool:
+        return True  # no-op
+
+    def get_open_orders(self, instrument: str = "") -> List[Dict]:
+        return []  # no real orders in paper mode

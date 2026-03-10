@@ -45,8 +45,28 @@ class MockHLProxy:
     def get_snapshot(self, instrument: str = "ETH-PERP") -> MarketSnapshot:
         """Generate a mock market data snapshot."""
         import random
-        drift = random.uniform(-5, 5)
-        mid = self.base_price + drift
+        coin = instrument.replace("-PERP", "").replace("-perp", "")
+        base_prices = {
+            "BTC": 50000.0,
+            "ETH": 2500.0,
+            "SOL": 100.0,
+            "DOGE": 0.15,
+            "ARB": 1.2,
+            "OP": 2.5,
+            "AVAX": 35.0,
+            "MATIC": 0.8,
+            "LINK": 15.0,
+            "UNI": 7.0,
+            "AAVE": 100.0,
+            "CRV": 0.5,
+            "MKR": 1500.0,
+            "SNX": 3.0,
+            "COMP": 50.0,
+        }
+        base = base_prices.get(coin, self.base_price)
+        drift_scale = max(base * 0.002, 0.01)
+        drift = random.uniform(-drift_scale, drift_scale)
+        mid = base + drift
         half_spread = mid * (self.spread_bps / 10000 / 2)
 
         self._tick += 1

@@ -141,6 +141,9 @@ def build_command() -> list[str]:
         tick = os.environ.get("TICK_INTERVAL")
         if tick:
             cmd += ["--tick", tick]
+        paper = os.environ.get("WOLF_PAPER", "").lower() == "true"
+        if paper:
+            cmd.append("--paper")
         data_dir = os.environ.get("DATA_DIR", "/data/wolf")
         cmd += ["--data-dir", data_dir]
         if os.environ.get("HL_TESTNET", "true").lower() == "false":

@@ -17,6 +17,7 @@ def wolf_run(
     preset: Optional[str] = typer.Option(None, "--preset", "-p"),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
     mock: bool = typer.Option(False, "--mock"),
+    paper: bool = typer.Option(False, "--paper", help="Mainnet data, simulated fills (no real orders)"),
     resume: bool = typer.Option(True, "--resume/--fresh", help="Resume from saved state or start fresh"),
     mainnet: bool = typer.Option(False, "--mainnet"),
     json_output: bool = typer.Option(False, "--json"),
@@ -24,13 +25,59 @@ def wolf_run(
     budget: float = typer.Option(0, "--budget", help="Override total budget ($)"),
     slots: int = typer.Option(0, "--slots", help="Override max slots"),
     leverage: float = typer.Option(0, "--leverage", help="Override leverage"),
+    allocation_plan: Optional[Path] = typer.Option(
+        None,
+        "--allocation-plan",
+        help="Live allocation plan JSON to gate WOLF entries.",
+    ),
+    allocation_enforce: bool = typer.Option(
+        False,
+        "--allocation-enforce/--no-allocation-enforce",
+        help="Enable live allocation gating for WOLF.",
+    ),
+    allocation_refresh_ticks: int = typer.Option(
+        15,
+        "--allocation-refresh-ticks",
+        help="Refresh allocation gate every N ticks.",
+    ),
+    portfolio_plan: Optional[Path] = typer.Option(
+        None,
+        "--portfolio-plan",
+        help="Portfolio allocation plan JSON to cap WOLF across processes.",
+    ),
+    portfolio_enforce: bool = typer.Option(
+        False,
+        "--portfolio-enforce/--no-portfolio-enforce",
+        help="Enable portfolio cap enforcement for WOLF.",
+    ),
+    portfolio_refresh_ticks: int = typer.Option(
+        5,
+        "--portfolio-refresh-ticks",
+        help="Refresh portfolio gate every N ticks.",
+    ),
+    portfolio_state_db: str = typer.Option(
+        "data/portfolio/state.db",
+        "--portfolio-state-db",
+        help="State DB path for portfolio allocator.",
+    ),
+    portfolio_ttl_ticks: int = typer.Option(
+        30,
+        "--portfolio-ttl-ticks",
+        help="TTL in ticks before portfolio allocations expire.",
+    ),
     data_dir: str = typer.Option("data/wolf", "--data-dir"),
 ):
     """Start WOLF autonomous multi-slot strategy."""
     _run_wolf(tick=tick, preset=preset, config=config, mock=mock,
-              resume=resume, mainnet=mainnet, json_output=json_output,
+              paper=paper, resume=resume, mainnet=mainnet, json_output=json_output,
               max_ticks=max_ticks, budget=budget, slots=slots,
-              leverage=leverage, data_dir=data_dir)
+              leverage=leverage, data_dir=data_dir,
+              allocation_plan=allocation_plan, allocation_enforce=allocation_enforce,
+              allocation_refresh_ticks=allocation_refresh_ticks,
+              portfolio_plan=portfolio_plan, portfolio_enforce=portfolio_enforce,
+              portfolio_refresh_ticks=portfolio_refresh_ticks,
+              portfolio_state_db=portfolio_state_db,
+              portfolio_ttl_ticks=portfolio_ttl_ticks)
 
 
 @wolf_app.command("once")
@@ -38,13 +85,14 @@ def wolf_once(
     preset: Optional[str] = typer.Option(None, "--preset", "-p"),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
     mock: bool = typer.Option(False, "--mock"),
+    paper: bool = typer.Option(False, "--paper", help="Mainnet data, simulated fills (no real orders)"),
     mainnet: bool = typer.Option(False, "--mainnet"),
     json_output: bool = typer.Option(False, "--json"),
     data_dir: str = typer.Option("data/wolf", "--data-dir"),
 ):
     """Run a single WOLF tick and exit."""
     _run_wolf(tick=0, preset=preset, config=config, mock=mock,
-              mainnet=mainnet, json_output=json_output, max_ticks=1,
+              paper=paper, mainnet=mainnet, json_output=json_output, max_ticks=1,
               budget=0, slots=0, leverage=0, data_dir=data_dir, single=True)
 
 
@@ -103,7 +151,15 @@ def wolf_presets():
 
 def _run_wolf(tick, preset, config, mock, mainnet, json_output,
               max_ticks, budget, slots, leverage, data_dir, single=False,
-              resume=True):
+              resume=True, paper=False,
+              allocation_plan: Optional[Path] = None,
+              allocation_enforce: bool = False,
+              allocation_refresh_ticks: int = 15,
+              portfolio_plan: Optional[Path] = None,
+              portfolio_enforce: bool = False,
+              portfolio_refresh_ticks: int = 5,
+              portfolio_state_db: str = "data/portfolio/state.db",
+              portfolio_ttl_ticks: int = 30):
     project_root = str(Path(__file__).resolve().parent.parent.parent)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
@@ -126,6 +182,16 @@ def _run_wolf(tick, preset, config, mock, mainnet, json_output,
         cfg.margin_per_slot = cfg.total_budget / max(slots, 1)
     if leverage > 0:
         cfg.leverage = leverage
+    if allocation_plan:
+        cfg.allocation_plan_path = str(allocation_plan)
+    cfg.allocation_enforce = allocation_enforce
+    cfg.allocation_refresh_ticks = allocation_refresh_ticks
+    if portfolio_plan:
+        cfg.portfolio_plan_path = str(portfolio_plan)
+    cfg.portfolio_enforce = portfolio_enforce
+    cfg.portfolio_refresh_ticks = portfolio_refresh_ticks
+    cfg.portfolio_state_db_path = portfolio_state_db
+    cfg.portfolio_ttl_ticks = portfolio_ttl_ticks
 
     logging.basicConfig(
         level=logging.INFO,
@@ -142,25 +208,36 @@ def _run_wolf(tick, preset, config, mock, mainnet, json_output,
         from cli.config import TradingConfig
         from parent.hl_proxy import HLProxy
 
+        # Paper mode forces mainnet for real data
+        use_mainnet = mainnet or paper
+
         try:
             private_key = TradingConfig().get_private_key()
         except RuntimeError as e:
             typer.echo(f"Error: {e}", err=True)
             raise typer.Exit(1)
-        raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
+        raw_hl = HLProxy(private_key=private_key, testnet=not use_mainnet)
         hl = DirectHLProxy(raw_hl)
-        typer.echo(f"Mode: LIVE ({'mainnet' if mainnet else 'testnet'})")
+
+        if paper:
+            from cli.hl_adapter import PaperHLProxy
+            hl = PaperHLProxy(hl)
+            typer.echo("Mode: PAPER (mainnet data, simulated fills — no real orders)")
+        else:
+            typer.echo(f"Mode: LIVE ({'mainnet' if mainnet else 'testnet'})")
 
     typer.echo(f"Budget: ${cfg.total_budget:,.0f}  |  Slots: {cfg.max_slots}  |  "
                f"Leverage: {cfg.leverage}x  |  Margin/slot: ${cfg.margin_per_slot:,.0f}")
 
-    # Builder fee
-    from cli.config import TradingConfig as _TC
-    _tcfg = _TC()
-    _bcfg = _tcfg.get_builder_config()
-    _builder_info = _bcfg.to_builder_info()
-    if _builder_info:
-        typer.echo(f"Builder fee: {_bcfg.fee_bps} bps -> {_bcfg.builder_address[:10]}...")
+    # Builder fee (skip for paper mode — no orders sent)
+    _builder_info = None
+    if not paper:
+        from cli.config import TradingConfig as _TC
+        _tcfg = _TC()
+        _bcfg = _tcfg.get_builder_config()
+        _builder_info = _bcfg.to_builder_info()
+        if _builder_info:
+            typer.echo(f"Builder fee: {_bcfg.fee_bps} bps -> {_bcfg.builder_address[:10]}...")
 
     from skills.wolf.scripts.standalone_runner import WolfRunner
 

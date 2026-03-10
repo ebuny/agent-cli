@@ -70,7 +70,7 @@ class JudgeGuard:
         # Update playbook with per-instrument stats
         playbook = memory_guard.load_playbook()
         for key, stats in report.playbook_stats.items():
-            from modules.memory_engine import PlaybookEntry, Playbook
+            from modules.memory_engine import PlaybookEntry
             existing = playbook.entries.get(key)
             if not existing:
                 existing = PlaybookEntry(
@@ -78,11 +78,12 @@ class JudgeGuard:
                     signal_source=stats.get("source", ""),
                 )
 
-            # Merge stats (additive for counts, weighted for rates)
-            existing.trade_count += stats.get("count", 0)
-            existing.win_count += stats.get("wins", 0)
-            existing.total_pnl += stats.get("total_pnl", 0.0)
-            existing.total_roe += stats.get("total_roe", 0.0)
+            # Judge reports are already full-history aggregates, so overwrite
+            # rather than additively merging and double-counting on each run.
+            existing.trade_count = stats.get("count", 0)
+            existing.win_count = stats.get("wins", 0)
+            existing.total_pnl = stats.get("total_pnl", 0.0)
+            existing.total_roe = stats.get("total_roe", 0.0)
             existing.last_updated_ms = report.timestamp_ms
             playbook.entries[key] = existing
 

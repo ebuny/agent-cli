@@ -260,6 +260,25 @@ class TestEntryLogic:
         entries = [a for a in actions if a.action == "enter"]
         assert len(entries) == 0  # Already 2 longs
 
+    def test_direction_limit_counts_entering_slots(self):
+        cfg = WolfConfig(max_same_direction=2)
+        engine = WolfEngine(cfg)
+
+        state = _make_state(slots=[
+            {"slot_id": 0, "status": "entering", "instrument": "ETH-PERP", "direction": "long"},
+            _active_slot(1, "SOL-PERP", direction="long"),
+        ])
+        movers = [{
+            "asset": "DOGE",
+            "signal_type": "IMMEDIATE_MOVER",
+            "direction": "LONG",
+            "confidence": 100,
+        }]
+
+        actions = engine.evaluate(state, movers, [], {}, {})
+        entries = [a for a in actions if a.action == "enter"]
+        assert len(entries) == 0
+
     def test_fills_multiple_slots(self):
         state = _make_state()
         movers = [

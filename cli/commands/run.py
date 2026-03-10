@@ -35,6 +35,10 @@ def run_cmd(
         False, "--dry-run",
         help="Run strategy but don't place real orders",
     ),
+    paper: bool = typer.Option(
+        False, "--paper",
+        help="Mainnet data, simulated fills (no real orders)",
+    ),
     max_ticks: int = typer.Option(
         0, "--max-ticks",
         help="Stop after N ticks (0 = run forever)",
@@ -46,6 +50,36 @@ def run_cmd(
     data_dir: str = typer.Option(
         "data/cli", "--data-dir",
         help="Directory for state and trade logs",
+    ),
+    allocation_plan: Optional[Path] = typer.Option(
+        None,
+        "--allocation-plan",
+        help="Live allocation plan JSON to gate strategy execution.",
+    ),
+    allocation_enforce: bool = typer.Option(
+        False,
+        "--allocation-enforce/--no-allocation-enforce",
+        help="Enable live allocation gating for this strategy run.",
+    ),
+    allocation_refresh_ticks: int = typer.Option(
+        15,
+        "--allocation-refresh-ticks",
+        help="Refresh allocation gate every N ticks.",
+    ),
+    portfolio_plan: Optional[Path] = typer.Option(
+        None,
+        "--portfolio-plan",
+        help="Portfolio allocation plan JSON to cap concurrent strategies.",
+    ),
+    portfolio_enforce: bool = typer.Option(
+        False,
+        "--portfolio-enforce/--no-portfolio-enforce",
+        help="Enable portfolio cap enforcement for this strategy run.",
+    ),
+    portfolio_refresh_ticks: int = typer.Option(
+        10,
+        "--portfolio-refresh-ticks",
+        help="Refresh portfolio gate every N ticks.",
     ),
     mock: bool = typer.Option(
         False, "--mock",
@@ -76,8 +110,15 @@ def run_cmd(
     cfg.tick_interval = tick_interval
     cfg.mainnet = mainnet
     cfg.dry_run = dry_run
+    cfg.paper = paper
     cfg.max_ticks = max_ticks
     cfg.data_dir = data_dir
+    cfg.allocation_plan_path = str(allocation_plan) if allocation_plan else ""
+    cfg.allocation_enforce = allocation_enforce
+    cfg.allocation_refresh_ticks = allocation_refresh_ticks
+    cfg.portfolio_plan_path = str(portfolio_plan) if portfolio_plan else ""
+    cfg.portfolio_enforce = portfolio_enforce
+    cfg.portfolio_refresh_ticks = portfolio_refresh_ticks
 
     # Setup logging
     logging.basicConfig(
@@ -191,24 +232,31 @@ def run_cmd(
     )
 
     # ── Network guard: prevent wrong-chain accidents ──
-    if cfg.mainnet:
-        env_testnet = os.environ.get("HL_TESTNET", "true").lower()
-        if env_testnet == "true":
-            typer.echo(
-                "FATAL: --mainnet flag set but HL_TESTNET=true in environment. "
-                "Refusing to start. Set HL_TESTNET=false or source .env.mainnet.",
-                err=True,
-            )
-            raise typer.Exit(code=1)
+    if not cfg.paper:
+        if cfg.mainnet:
+            env_testnet = os.environ.get("HL_TESTNET", "true").lower()
+            if env_testnet == "true":
+                typer.echo(
+                    "FATAL: --mainnet flag set but HL_TESTNET=true in environment. "
+                    "Refusing to start. Set HL_TESTNET=false or source .env.mainnet.",
+                    err=True,
+                )
+                raise typer.Exit(code=1)
+        else:
+            env_testnet = os.environ.get("HL_TESTNET", "true").lower()
+            if env_testnet == "false":
+                typer.echo(
+                    "FATAL: running in testnet mode but HL_TESTNET=false in environment. "
+                    "Pass --mainnet or fix your environment.",
+                    err=True,
+                )
+                raise typer.Exit(code=1)
     else:
         env_testnet = os.environ.get("HL_TESTNET", "true").lower()
-        if env_testnet == "false":
-            typer.echo(
-                "FATAL: running in testnet mode but HL_TESTNET=false in environment. "
-                "Pass --mainnet or fix your environment.",
-                err=True,
-            )
-            raise typer.Exit(code=1)
+        if env_testnet == "true" and cfg.mainnet:
+            typer.echo("PAPER mode: HL_TESTNET=true but --mainnet set; using mainnet data.")
+        if env_testnet == "false" and not cfg.mainnet:
+            typer.echo("PAPER mode: HL_TESTNET=false with testnet flag; using mainnet data anyway.")
 
     # Build HL adapter
     if mock or dry_run:
@@ -220,10 +268,14 @@ def run_cmd(
         from parent.hl_proxy import HLProxy
 
         private_key = cfg.get_private_key()
-        raw_hl = HLProxy(private_key=private_key, testnet=not cfg.mainnet)
+        use_mainnet = cfg.mainnet or cfg.paper
+        raw_hl = HLProxy(private_key=private_key, testnet=not use_mainnet)
         hl = DirectHLProxy(raw_hl)
-        network = "mainnet" if cfg.mainnet else "testnet"
-        typer.echo(f"Mode: LIVE ({network})")
+        network = "mainnet" if use_mainnet else "testnet"
+        if cfg.paper:
+            typer.echo(f"Mode: PAPER ({network})")
+        else:
+            typer.echo(f"Mode: LIVE ({network})")
 
     typer.echo(f"Strategy: {cfg.strategy} -> {strategy_path}")
     typer.echo(f"Instrument: {cfg.instrument}")
@@ -249,9 +301,18 @@ def run_cmd(
         instrument=cfg.instrument,
         tick_interval=cfg.tick_interval,
         dry_run=cfg.dry_run,
+        paper=cfg.paper,
         data_dir=cfg.data_dir,
         risk_limits=cfg.to_risk_limits(),
         builder=builder_info,
+        allocation_plan_path=cfg.allocation_plan_path,
+        allocation_enforce=cfg.allocation_enforce,
+        allocation_refresh_ticks=cfg.allocation_refresh_ticks,
+        portfolio_plan_path=cfg.portfolio_plan_path or cfg.allocation_plan_path,
+        portfolio_enforce=cfg.portfolio_enforce,
+        portfolio_refresh_ticks=cfg.portfolio_refresh_ticks,
+        portfolio_state_db_path=cfg.portfolio_state_db_path,
+        portfolio_ttl_ticks=cfg.portfolio_ttl_ticks,
     )
 
     # Attach markout tracker if protection is enabled

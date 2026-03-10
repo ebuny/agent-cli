@@ -19,7 +19,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10+-3776AB?logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/strategies-14-C9A84C" alt="Strategies" />
-  <img src="https://img.shields.io/badge/tests-263%20passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-360%20passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
   <img src="https://img.shields.io/badge/MCP-16%20tools-8A2BE2" alt="MCP" />
 </p>
@@ -296,6 +296,52 @@ hl wolf run                                 # Live testnet
 hl wolf run --preset conservative --mainnet # Live mainnet
 ```
 
+  Research-generated live plans can gate WOLF entries by regime, source, instrument, and empirical minimum signal score. Generate them with `hl research run --wolf-edge-report ...` and convert them into a current-regime deployment plan with `hl research allocate-live`. Live plans can also apply HOWL/Judge feedback (`--feedback`) to scale capital or block sources based on recent false-positive rates.
+WOLF also applies an execution health kill-switch that blocks entries if fill ratio, slippage, or API error rate breach configured thresholds.
+Single-strategy runs (`hl run`) can also be gated by a live allocation plan via `--allocation-plan` and `--allocation-enforce`.
+Portfolio caps can be enforced across concurrent `hl run` and WOLF processes via `--portfolio-plan` and `--portfolio-enforce`.
+MCP server runs can inherit the same gating via environment variables: `HL_ALLOC_PLAN`, `HL_ALLOC_ENFORCE`, `HL_ALLOC_REFRESH_TICKS`, `HL_PORTFOLIO_PLAN`, `HL_PORTFOLIO_ENFORCE`, `HL_PORTFOLIO_REFRESH_TICKS`.
+
+  ### VPS Daily Research Refresh (Ubuntu)
+
+Use the systemd unit in `deploy/systemd` to rebuild the live plan daily on the VPS.
+
+```bash
+sudo cp deploy/systemd/research-refresh.service /etc/systemd/system/
+sudo cp deploy/systemd/research-refresh.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+  sudo systemctl enable --now research-refresh.timer
+  systemctl status research-refresh.timer
+  ```
+
+  ### Carry Micro-Live Preset (Phase 4)
+
+  The carry edge micro-live preset ships with three configs in `configs/carry_micro_live/`:
+  `funding_arb.yaml`, `basis_arb.yaml`, and `hedge_agent.yaml`. Launch them together with:
+  Checklist: `docs/micro_live_checklist.md`
+
+  ```bash
+  PLAN_PATH=data/research/live_allocation_plan.json \
+  PORTFOLIO_PLAN=data/research/live_allocation_plan.json \
+  INSTRUMENT=ETH-PERP \
+  PAPER=true \
+  MAINNET=false \
+  scripts/run_carry_micro_live.sh
+  ```
+
+  On a VPS, you can use the bundled systemd unit (adjust `WorkingDirectory` if your install path differs):
+
+  ```bash
+  sudo cp deploy/systemd/carry-micro-live.service /etc/systemd/system/
+  sudo cp deploy/systemd/carry-micro-live.env /etc/default/agent-cli-carry
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now carry-micro-live.service
+  systemctl status carry-micro-live.service
+  ```
+  Edit `/etc/default/agent-cli-carry` to override `PLAN_PATH`, `PORTFOLIO_PLAN`, or `INSTRUMENT`.
+
+Adjust paths and parameters inside `deploy/systemd/research-refresh.service` if your install directory or data path differs.
+
 **[Download SKILL.md](skills/wolf/SKILL.md)**
 
 ---
@@ -356,8 +402,13 @@ hl skills list                    # Discover installed skills
 hl wolf run [options]             # WOLF multi-slot orchestrator
 hl scanner run [options]          # Opportunity scanner
 hl movers run [options]           # Emerging movers detector
-hl dsl run -i ETH-PERP [options] # DSL trailing stop
-hl howl run [--since DATE]        # Performance review
+  hl dsl run -i ETH-PERP [options] # DSL trailing stop
+  hl howl run [--since DATE]        # Performance review
+  hl paper validate [options]       # Paper validation across strategy runs
+  hl research ingest [options]      # Build datasets from scanner/movers/WOLF history
+hl research run [options]         # Historical replay + allocation report
+hl research allocate-live         # Filter research snapshot by current regime
+hl research status                # Latest research snapshot
 
 # Infrastructure
 hl builder approve [--mainnet]    # Approve builder fee
@@ -491,7 +542,7 @@ skills/        Agent Skills (SKILL.md + runners)
   howl/        Performance review
 sdk/           Strategy base class and model registry
 parent/        HL API proxy, position tracking, risk management
-tests/         Test suite (263 tests)
+  tests/         Test suite (360 tests)
 ```
 
 ---
@@ -555,7 +606,7 @@ hl run my_strategies.my_strategy:MyStrategy -i ETH-PERP --tick 10
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/ -v                  # 263 tests
+  pytest tests/ -v                  # 360 tests
 ```
 
 ## Attribution 

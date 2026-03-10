@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 class WolfSlot:
     """One position slot in the WOLF portfolio."""
     slot_id: int = 0
-    status: str = "empty"       # empty, active, closed
+    status: str = "empty"       # empty, entering, active, closed
     instrument: str = ""
     direction: str = ""         # "long" or "short"
     entry_source: str = ""      # movers_immediate, movers_signal, scanner
@@ -63,6 +63,7 @@ class WolfState:
     total_trades: int = 0
     total_pnl: float = 0.0
     entry_queue: List[Dict[str, Any]] = field(default_factory=list)
+    closed_slots_buffer: List[Dict[str, Any]] = field(default_factory=list)
 
     def get_empty_slot(self) -> Optional[WolfSlot]:
         for slot in self.slots:
@@ -73,11 +74,14 @@ class WolfState:
     def active_slots(self) -> List[WolfSlot]:
         return [s for s in self.slots if s.is_active()]
 
+    def engaged_slots(self) -> List[WolfSlot]:
+        return [s for s in self.slots if s.status in ("active", "entering")]
+
     def active_instruments(self) -> set:
-        return {s.instrument for s in self.active_slots()}
+        return {s.instrument for s in self.engaged_slots()}
 
     def direction_count(self, direction: str) -> int:
-        return sum(1 for s in self.active_slots() if s.direction == direction)
+        return sum(1 for s in self.engaged_slots() if s.direction == direction)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -89,6 +93,7 @@ class WolfState:
             "total_trades": self.total_trades,
             "total_pnl": self.total_pnl,
             "entry_queue": self.entry_queue,
+            "closed_slots_buffer": self.closed_slots_buffer,
         }
 
     @classmethod
@@ -101,6 +106,7 @@ class WolfState:
             total_trades=d.get("total_trades", 0),
             total_pnl=d.get("total_pnl", 0.0),
             entry_queue=d.get("entry_queue", []),
+            closed_slots_buffer=d.get("closed_slots_buffer", []),
         )
         state.slots = [WolfSlot.from_dict(s) for s in d.get("slots", [])]
         return state

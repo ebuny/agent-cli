@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import signal
 import sys
 import time
@@ -17,6 +18,8 @@ from sdk.strategy_sdk.base import BaseStrategy, StrategyContext
 from cli.display import shutdown_summary, tick_line
 from cli.order_manager import OrderManager
 from execution.order_book import ManagedOrderBook
+from modules.runtime_strategy_gate import RuntimeStrategyGate, RuntimeStrategyGateLoader
+from modules.portfolio_allocator import PortfolioAllocator, PortfolioGate
 
 log = logging.getLogger("engine")
 ZERO = Decimal("0")
@@ -32,21 +35,45 @@ class TradingEngine:
         instrument: str = "ETH-PERP",
         tick_interval: float = 10.0,
         dry_run: bool = False,
+        paper: bool = False,
         data_dir: str = "data/cli",
         risk_limits: Optional[RiskLimits] = None,
         builder: Optional[dict] = None,
+        allocation_plan_path: str = "",
+        allocation_enforce: bool = False,
+        allocation_refresh_ticks: int = 15,
+        portfolio_plan_path: str = "",
+        portfolio_enforce: bool = False,
+        portfolio_refresh_ticks: int = 10,
+        portfolio_state_db_path: str = "data/portfolio/state.db",
+        portfolio_ttl_ticks: int = 30,
     ):
         self.hl = hl
         self.strategy = strategy
         self.instrument = instrument
         self.tick_interval = tick_interval
         self.dry_run = dry_run
+        self.paper = paper
         self.builder = builder
+        self.allocation_plan_path = allocation_plan_path
+        self.allocation_enforce = allocation_enforce
+        self.allocation_refresh_ticks = allocation_refresh_ticks
+        self.portfolio_plan_path = portfolio_plan_path
+        self.portfolio_enforce = portfolio_enforce
+        self.portfolio_refresh_ticks = portfolio_refresh_ticks
+        self.portfolio_state_db_path = portfolio_state_db_path
+        self.portfolio_ttl_ticks = portfolio_ttl_ticks
 
         # Reuse existing components (no modifications to core)
         self.position_tracker = PositionTracker()
         self.risk_manager = RiskManager(limits=risk_limits)
-        self.order_manager = OrderManager(hl, instrument=instrument, dry_run=dry_run, builder=builder)
+        self.order_manager = OrderManager(
+            hl,
+            instrument=instrument,
+            dry_run=dry_run,
+            paper=paper,
+            builder=builder,
+        )
 
         # Persistence
         self.state_db = StateDB(path=f"{data_dir}/state.db")
@@ -56,6 +83,14 @@ class TradingEngine:
         self.tick_count = 0
         self.start_time_ms = 0
         self._running = False
+        self._allocation_gate = RuntimeStrategyGate()
+        self._allocation_loader = RuntimeStrategyGateLoader()
+        self._portfolio_allocator = PortfolioAllocator(
+            state_db_path=self.portfolio_state_db_path,
+            ttl_ms=int(self.portfolio_ttl_ticks * self.tick_interval * 1000),
+        )
+        self._portfolio_gate = PortfolioGate()
+        self._portfolio_runner_id = f"strategy-{self.strategy.strategy_id}-{os.getpid()}"
 
         # Optional DSL guard (composable mode — set via dsl_config)
         self.dsl_guard = None   # type: ignore[assignment]
@@ -80,12 +115,17 @@ class TradingEngine:
         signal.signal(signal.SIGTERM, self._handle_shutdown)
 
         # Set leverage from risk config (not hardcoded)
-        if not self.dry_run and hasattr(self.hl, 'set_leverage'):
+        if not self.dry_run and not self.paper and hasattr(self.hl, 'set_leverage'):
             coin = self.instrument.replace("-PERP", "").replace("-perp", "")
             max_lev = int(self.risk_manager.limits.max_leverage)
             self.hl.set_leverage(max_lev, coin)
 
-        mode = "DRY RUN" if self.dry_run else "LIVE"
+        if self.dry_run:
+            mode = "DRY RUN"
+        elif self.paper:
+            mode = "PAPER"
+        else:
+            mode = "LIVE"
         log.info("Engine started: strategy=%s instrument=%s tick=%.1fs mode=%s leverage=%sx",
                  self.strategy.strategy_id, self.instrument,
                  self.tick_interval, mode, self.risk_manager.limits.max_leverage)
@@ -113,6 +153,20 @@ class TradingEngine:
         snapshot = self.hl.get_snapshot(self.instrument)
         if snapshot.mid_price <= 0:
             log.warning("T%d: no market data, skipping", self.tick_count)
+            return
+
+        # 1b. Allocation gate (optional)
+        self._refresh_allocation_gate()
+        self._refresh_portfolio_gate()
+        if (self._allocation_gate.configured and not self._allocation_gate.allow_entries
+                or self._portfolio_gate.configured and not self._portfolio_gate.allow_entries):
+            log.warning(
+                "T%d: allocation gate blocked strategy %s (%s)",
+                self.tick_count,
+                self.strategy.strategy_id,
+                ", ".join(self._allocation_gate.reasons),
+            )
+            self._log_tick(snapshot, [], [], ok=False)
             return
 
         # 2. Pre-tick risk check
@@ -258,6 +312,57 @@ class TradingEngine:
                 self._dsl_close_position(snapshot)
                 self.dsl_guard.mark_closed(snapshot.mid_price, result.reason)
                 self._running = False
+
+    def _refresh_allocation_gate(self) -> None:
+        if not self.allocation_enforce or not self.allocation_plan_path:
+            self._allocation_gate = RuntimeStrategyGate()
+            return
+        refresh_ticks = max(int(self.allocation_refresh_ticks or 0), 1)
+        if self.tick_count > 0 and self.tick_count % refresh_ticks != 0:
+            return
+        try:
+            self._allocation_gate = self._allocation_loader.load(
+                plan_path=self.allocation_plan_path,
+                strategy_id=self.strategy.strategy_id,
+                instrument=self.instrument,
+            )
+        except Exception as e:
+            self._allocation_gate = RuntimeStrategyGate(
+                configured=True,
+                allow_entries=False,
+                plan_path=self.allocation_plan_path,
+                strategy_id=self.strategy.strategy_id,
+                instrument=self.instrument,
+                reasons=[f"allocation_plan_error:{e}"],
+            )
+
+    def _refresh_portfolio_gate(self) -> None:
+        if not self.portfolio_enforce:
+            self._portfolio_gate = PortfolioGate()
+            return
+        plan_path = self.portfolio_plan_path or self.allocation_plan_path
+        if not plan_path:
+            self._portfolio_gate = PortfolioGate(
+                configured=True,
+                allow_entries=False,
+                strategy_id=self.strategy.strategy_id,
+                instrument=self.instrument,
+                reasons=["portfolio_plan_missing"],
+            )
+            return
+
+        refresh_ticks = max(int(self.portfolio_refresh_ticks or 0), 1)
+        if self.tick_count > 0 and self.tick_count % refresh_ticks != 0:
+            return
+
+        requested = float(self.risk_manager.limits.max_notional_usd)
+        self._portfolio_gate = self._portfolio_allocator.refresh(
+            plan_path=plan_path,
+            runner_id=self._portfolio_runner_id,
+            strategy_id=self.strategy.strategy_id,
+            instrument=self.instrument,
+            requested_capital_usd=requested,
+        )
 
     def _dsl_close_position(self, snapshot: MarketSnapshot) -> None:
         """Close position when DSL trailing stop triggers."""
