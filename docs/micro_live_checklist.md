@@ -79,6 +79,15 @@ systemctl status carry-micro-live.service
 If your install path is not `/opt/agent-cli`, edit `WorkingDirectory` and `PLAN_PATH` in the service file.
 Edit `/etc/default/agent-cli-carry` to override plan paths or instrument.
 
+**Optional: BTC Service (separate process)**
+```bash
+sudo cp deploy/systemd/carry-micro-live-btc.service /etc/systemd/system/
+sudo cp deploy/systemd/carry-micro-live-btc.env /etc/default/agent-cli-carry-btc
+sudo systemctl daemon-reload
+sudo systemctl enable --now carry-micro-live-btc.service
+systemctl status carry-micro-live-btc.service
+```
+
 **Monitoring**
 - Check `data/cli/carry/*/trades.jsonl` for fills.
 - Check `data/wolf/execution-health.jsonl` for kill-switch events.

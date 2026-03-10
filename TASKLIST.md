@@ -30,6 +30,7 @@
 - Micro-live checklist for Hyperliquid deployment
 - Paper mode for single-strategy runs (live data, simulated fills)
 - Paper validation command (hl paper validate)
+- Optional BTC carry micro-live service + env template
 
 ## In Progress
 
