@@ -21,6 +21,7 @@ INSTRUMENT="${INSTRUMENT:-}"
 MAINNET="${MAINNET:-false}"
 DRY_RUN="${DRY_RUN:-false}"
 PAPER="${PAPER:-false}"
+CONFIG_DIR="${CONFIG_DIR:-configs/carry_micro_live}"
 
 COMMON_ARGS=(
   --allocation-plan "$PLAN_PATH"
@@ -42,8 +43,8 @@ if [[ "$PAPER" == "true" ]]; then
   COMMON_ARGS+=(--paper)
 fi
 
-"$PYTHON_BIN" -m cli.main run funding_arb --config configs/carry_micro_live/funding_arb.yaml "${COMMON_ARGS[@]}" &
-"$PYTHON_BIN" -m cli.main run basis_arb --config configs/carry_micro_live/basis_arb.yaml "${COMMON_ARGS[@]}" &
-"$PYTHON_BIN" -m cli.main run hedge_agent --config configs/carry_micro_live/hedge_agent.yaml "${COMMON_ARGS[@]}" &
+"$PYTHON_BIN" -m cli.main run funding_arb --config "${CONFIG_DIR}/funding_arb.yaml" "${COMMON_ARGS[@]}" &
+"$PYTHON_BIN" -m cli.main run basis_arb --config "${CONFIG_DIR}/basis_arb.yaml" "${COMMON_ARGS[@]}" &
+"$PYTHON_BIN" -m cli.main run hedge_agent --config "${CONFIG_DIR}/hedge_agent.yaml" "${COMMON_ARGS[@]}" &
 
 wait

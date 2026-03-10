@@ -87,6 +87,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now carry-micro-live-btc.service
 systemctl status carry-micro-live-btc.service
 ```
+BTC uses smaller sizing via `configs/carry_micro_live_btc/`.
 
 **Monitoring**
 - Check `data/cli/carry/*/trades.jsonl` for fills.

@@ -1,0 +1,26 @@
+strategy: funding_arb
+instrument: BTC-PERP
+tick_interval: 15
+data_dir: data/cli/carry/btc/funding_arb
+
+max_position_qty: 0.05
+max_notional_usd: 2500.0
+max_order_size: 0.01
+max_daily_drawdown_pct: 1.0
+max_leverage: 2.0
+tvl: 5000.0
+
+allocation_plan_path: data/research/live_allocation_plan.json
+allocation_enforce: true
+allocation_refresh_ticks: 15
+portfolio_plan_path: data/research/live_allocation_plan.json
+portfolio_enforce: true
+portfolio_refresh_ticks: 10
+portfolio_state_db_path: data/portfolio/state.db
+portfolio_ttl_ticks: 30
+
+strategy_params:
+  base_size: 0.01
+  divergence_threshold_bps: 3.0
+  max_bias_bps: 6.0
+  funding_weight: 0.4

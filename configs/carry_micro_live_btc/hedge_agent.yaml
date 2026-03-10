@@ -1,0 +1,26 @@
+strategy: hedge_agent
+instrument: BTC-PERP
+tick_interval: 10
+data_dir: data/cli/carry/btc/hedge_agent
+
+max_position_qty: 0.05
+max_notional_usd: 3000.0
+max_order_size: 0.02
+max_daily_drawdown_pct: 1.0
+max_leverage: 2.0
+tvl: 5000.0
+
+allocation_plan_path: data/research/live_allocation_plan.json
+allocation_enforce: true
+allocation_refresh_ticks: 15
+portfolio_plan_path: data/research/live_allocation_plan.json
+portfolio_enforce: true
+portfolio_refresh_ticks: 10
+portfolio_state_db_path: data/portfolio/state.db
+portfolio_ttl_ticks: 30
+
+strategy_params:
+  inventory_threshold: 0.02
+  urgency_factor: 0.5
+  max_hedge_size: 0.05
+  slippage_bps: 10.0

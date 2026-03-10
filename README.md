@@ -339,7 +339,7 @@ sudo systemctl daemon-reload
   systemctl status carry-micro-live.service
   ```
   Edit `/etc/default/agent-cli-carry` to override `PLAN_PATH`, `PORTFOLIO_PLAN`, or `INSTRUMENT`.
-  For BTC, use `deploy/systemd/carry-micro-live-btc.service` and `/etc/default/agent-cli-carry-btc`.
+  For BTC, use `deploy/systemd/carry-micro-live-btc.service` and `/etc/default/agent-cli-carry-btc` (smaller sizing in `configs/carry_micro_live_btc/`).
 
 Adjust paths and parameters inside `deploy/systemd/research-refresh.service` if your install directory or data path differs.
 
