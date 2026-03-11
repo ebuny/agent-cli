@@ -217,6 +217,14 @@ class WolfRunner:
         log.info("WOLF started: slots=%d leverage=%.0fx budget=$%.0f tick=%ds",
                  self.config.max_slots, self.config.leverage,
                  self.config.total_budget, self.tick_interval)
+                 
+        self.telegram.send_message(
+            f"🐺 <b>WOLF AGENT STARTED</b>\n"
+            f"Mode: {'⚙️ PAPER' if self.hl.config.paper_mode else '🚨 LIVE'}\n"
+            f"Budget: ${self.config.total_budget:,.2f}\n"
+            f"Leverage: {self.config.leverage}x\n"
+            f"Slots: {self.config.max_slots}"
+        )
 
         # Log session start to memory
         try:
