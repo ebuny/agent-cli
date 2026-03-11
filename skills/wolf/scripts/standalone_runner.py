@@ -783,7 +783,7 @@ class WolfRunner:
                     mid_price=self._resolve_mid_price(mid),
                 )
 
-            exit_price = fill.price if fill else mid
+            exit_price = float(fill.price) if fill else float(mid)
             pnl = 0.0
             if slot.entry_price > 0 and exit_price > 0:
                 if slot.direction == "long":
@@ -804,15 +804,7 @@ class WolfRunner:
                      slot.slot_id, slot.direction, action.instrument,
                      exit_price, pnl, action.reason)
             
-            icon = "🔥" if pnl > 0 else "🩸"
-            self.telegram.send_message(
-                f"{icon} <b>WOLF EXIT</b>\n"
-                f"<b>{action.instrument}</b> {slot.direction.upper()}\n"
-                f"PnL: <b>${pnl:.2f}</b>\n"
-                f"Reason: <i>{action.reason}</i>"
-            )
-            
-            icon = "🔥" if pnl > 0 else "🩸"
+            icon = "🔥" if pnl >= 0 else "🩸"
             self.telegram.send_message(
                 f"{icon} <b>WOLF EXIT</b>\n"
                 f"<b>{action.instrument}</b> {slot.direction.upper()}\n"
@@ -1080,6 +1072,13 @@ class WolfRunner:
         self._cancel_pending_entry(slot.slot_id, reason="twap_complete", persist=False)
         log.info("TWAP completed for slot %d: %s size=%.4f avg=%.4f",
                  slot.slot_id, slot.instrument, slot.entry_size, slot.entry_price)
+        
+        self.telegram.send_message(
+            f"🟢 <b>WOLF TWAP ENTRY COMPLETED</b>\n"
+            f"<b>{slot.instrument}</b> {slot.direction.upper()}\n"
+            f"Avg Price: {slot.entry_price:.4f}\n"
+            f"Size: {slot.entry_size:.4f}"
+        )
 
     def _cancel_pending_entry(self, slot_id: int, reason: str, persist: bool = True) -> None:
         """Remove any in-flight TWAP state for a slot."""
