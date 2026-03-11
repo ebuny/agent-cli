@@ -8,6 +8,10 @@ class TelegramReporter:
     """Simple reporter to push trade events to a Telegram channel/chat."""
     
     def __init__(self):
+        from dotenv import load_dotenv
+        from pathlib import Path
+        load_dotenv(Path(__file__).parent.parent / ".env")
+        
         self.bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
         self.chat_id = os.environ.get("TELEGRAM_CHAT_ID")
         self.enabled = bool(self.bot_token and self.chat_id)
