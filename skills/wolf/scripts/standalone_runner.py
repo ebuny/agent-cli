@@ -715,6 +715,14 @@ class WolfRunner:
                     f"Size: {float(fill.quantity):.4f}\n"
                     f"Reason: <i>{action.reason}</i>"
                 )
+                
+                self.telegram.send_message(
+                    f"🟢 <b>WOLF ENTRY</b>\n"
+                    f"<b>{action.instrument}</b> {action.direction.upper()}\n"
+                    f"Price: {float(fill.price):.4f}\n"
+                    f"Size: {float(fill.quantity):.4f}\n"
+                    f"Reason: <i>{action.reason}</i>"
+                )
             else:
                 log.warning("Entry fill failed for %s", action.instrument)
                 slot.status = "empty"
@@ -795,6 +803,14 @@ class WolfRunner:
             log.info("EXITED slot %d: %s %s @ %.4f PnL=$%.2f (%s)",
                      slot.slot_id, slot.direction, action.instrument,
                      exit_price, pnl, action.reason)
+            
+            icon = "🔥" if pnl > 0 else "🩸"
+            self.telegram.send_message(
+                f"{icon} <b>WOLF EXIT</b>\n"
+                f"<b>{action.instrument}</b> {slot.direction.upper()}\n"
+                f"PnL: <b>${pnl:.2f}</b>\n"
+                f"Reason: <i>{action.reason}</i>"
+            )
             
             icon = "🔥" if pnl > 0 else "🩸"
             self.telegram.send_message(
