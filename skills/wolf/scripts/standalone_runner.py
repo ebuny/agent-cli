@@ -220,7 +220,6 @@ class WolfRunner:
                  
         self.telegram.send_message(
             f"🐺 <b>WOLF AGENT STARTED</b>\n"
-            f"Mode: {'⚙️ PAPER' if self.hl.config.paper_mode else '🚨 LIVE'}\n"
             f"Budget: ${self.config.total_budget:,.2f}\n"
             f"Leverage: {self.config.leverage}x\n"
             f"Slots: {self.config.max_slots}"
