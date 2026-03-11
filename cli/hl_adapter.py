@@ -401,26 +401,73 @@ class PaperHLProxy:
         tif: str = "Ioc",
         builder: Optional[dict] = None,
     ) -> Optional[HLFill]:
-        """Simulate an instant fill at current mid price."""
+        """Simulate a realistic fill with queue modeling and slippage."""
+        import random
         coin = _to_hl_coin(instrument)
+        
         try:
-            mids = self._hl.get_all_mids()
-            mid = float(mids.get(coin, "0"))
-            if mid <= 0:
-                log.warning("[PAPER] No mid price for %s, using submitted price", instrument)
-                mid = price
-        except Exception:
+            snapshot = self._hl.get_snapshot(instrument)
+            best_bid = float(getattr(snapshot, "bid", 0) or 0)
+            best_ask = float(getattr(snapshot, "ask", 0) or 0)
+            mid = float(getattr(snapshot, "mid_price", 0) or 0)
+            if mid <= 0 and best_bid > 0 and best_ask > 0:
+                mid = (best_bid + best_ask) / 2
+        except Exception as e:
+            log.warning("[PAPER] Snapshot fetch failed for %s: %s", instrument, e)
+            best_bid = best_ask = mid = 0.0
+
+        if mid <= 0:
+            log.warning("[PAPER] No mid price for %s, using submitted price", instrument)
             mid = price
+            best_bid = price
+            best_ask = price
+
+        fill_price = mid
+
+        if tif.lower() == "alo":
+            # Add Liquidity Only (passive limit)
+            # 1. Price check
+            if side.lower() == "buy" and price > best_ask:
+                log.info("[PAPER] ALO rejected: buy price %f crosses book ask %f", price, best_ask)
+                return None
+            if side.lower() == "sell" and price < best_bid:
+                log.info("[PAPER] ALO rejected: sell price %f crosses book bid %f", price, best_bid)
+                return None
+                
+            # Queue modeling: simulate order not getting filled or partial fill
+            if random.random() < 0.20:
+                log.info("[PAPER] ALO rejected: order stayed pending in queue (simulated)")
+                return None
+            
+            fill_price = price
+        else:
+            # Immediate or Cancel (market taker)
+            # Default slippage of 0.5 to 2.5 bps
+            base_slip_bps = random.uniform(0.5, 2.5)
+            # Higher size size -> slightly more slippage impact (placeholder ratio)
+            size_penalty_bps = min(size / 1000.0, 5.0) 
+            total_slip_bps = base_slip_bps + size_penalty_bps
+            
+            slip_pct = total_slip_bps / 10000.0
+            
+            # Apply slippage based on side
+            if side.lower() == "buy":
+                fill_price = mid * (1 + slip_pct)
+            else:
+                fill_price = mid * (1 - slip_pct)
 
         fill = HLFill(
             oid=f"paper-{int(time.time() * 1000)}",
             instrument=instrument,
             side=side.lower(),
-            price=Decimal(str(mid)),
+            price=Decimal(str(fill_price)),
             quantity=Decimal(str(size)),
             timestamp_ms=int(time.time() * 1000),
+            fee=Decimal(str(size * fill_price * 0.00035)),  # Simulate 3.5 taker / 1.0 maker fee
         )
-        log.info("[PAPER] Simulated fill: %s %s %s @ %s", side, size, instrument, mid)
+        
+        log.info("[PAPER] Simulated %s fill: %s %s %s @ %.5f (requested %.5f, mid %.5f)", 
+                 tif, side, size, instrument, fill_price, price, mid)
         return fill
 
     def cancel_order(self, instrument: str, oid: str) -> bool:

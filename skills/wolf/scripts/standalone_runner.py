@@ -37,6 +37,7 @@ from modules.scanner_guard import ScannerGuard
 from modules.wolf_config import WolfConfig
 from modules.wolf_engine import WolfAction, WolfEngine
 from modules.wolf_state import WolfSlot, WolfState, WolfStateStore
+from modules.telegram_reporter import TelegramReporter
 from execution.parent_order import ParentOrder
 from execution.portfolio_risk import PortfolioRiskManager, PortfolioRiskConfig
 from execution.twap import TWAPExecutor
@@ -166,6 +167,7 @@ class WolfRunner:
         self._portfolio_runner_id = f"wolf-{os.getpid()}"
         self._refresh_portfolio_gate(force=True)
 
+        self.telegram = TelegramReporter()
         self._running = False
 
     def _restore_dsl_guards(self) -> None:
@@ -578,7 +580,7 @@ class WolfRunner:
                 slot.instrument = ""
                 return
 
-            entry_margin = self._compute_entry_margin()
+            entry_margin = self._compute_entry_margin(action.instrument)
             if entry_margin <= 0:
                 log.info("Allocation budget exhausted; skipping entry for %s", action.instrument)
                 slot.status = "empty"
@@ -705,6 +707,14 @@ class WolfRunner:
                 log.info("ENTERED slot %d: %s %s @ %.4f size=%.4f (%s)",
                          slot.slot_id, action.direction, action.instrument,
                          float(fill.price), float(fill.quantity), action.reason)
+                
+                self.telegram.send_message(
+                    f"🟢 <b>WOLF ENTRY</b>\n"
+                    f"<b>{action.instrument}</b> {action.direction.upper()}\n"
+                    f"Price: {float(fill.price):.4f}\n"
+                    f"Size: {float(fill.quantity):.4f}\n"
+                    f"Reason: <i>{action.reason}</i>"
+                )
             else:
                 log.warning("Entry fill failed for %s", action.instrument)
                 slot.status = "empty"
@@ -785,6 +795,15 @@ class WolfRunner:
             log.info("EXITED slot %d: %s %s @ %.4f PnL=$%.2f (%s)",
                      slot.slot_id, slot.direction, action.instrument,
                      exit_price, pnl, action.reason)
+            
+            icon = "🔥" if pnl > 0 else "🩸"
+            self.telegram.send_message(
+                f"{icon} <b>WOLF EXIT</b>\n"
+                f"<b>{action.instrument}</b> {slot.direction.upper()}\n"
+                f"Price: {exit_price:.4f}\n"
+                f"PnL: <b>${pnl:.2f}</b> ({slot.current_roe:+.1f}%)\n"
+                f"Reason: <i>{action.reason}</i>"
+            )
 
         except Exception as e:
             log.error("Exit failed for slot %d (%s): %s", slot.slot_id, action.instrument, e)
@@ -1115,6 +1134,7 @@ class WolfRunner:
             # Log distilled summary
             summary = HowlReporter().distill(metrics)
             log.info(summary)
+            self.telegram.send_message(f"🐺 <b>HOWL REPORT</b>\n<pre>{summary}</pre>")
 
             # Save report
             howl_dir = Path(self.data_dir) / "howl"
@@ -1592,7 +1612,46 @@ class WolfRunner:
             return min(base_margin, portfolio_per_slot)
         return base_margin
 
-    def _compute_entry_margin(self) -> float:
+    def _apply_volatility_sizing(self, instrument: str, base_margin: float) -> float:
+        """Scale position size inversely proportional to recent hourly volatility."""
+        try:
+            # Fetch last 24 1h candles to compute standard deviation of returns
+            candles = self.hl.get_candles(instrument.replace("-PERP", ""), "1h", 24 * 3600 * 1000)
+            if not candles or len(candles) < 10:
+                return base_margin
+            
+            import math
+            returns = []
+            for i in range(1, len(candles)):
+                prev_close = float(candles[i-1].get("c", 0))
+                curr_close = float(candles[i].get("c", 0))
+                if prev_close > 0:
+                    returns.append((curr_close - prev_close) / prev_close)
+            
+            if not returns:
+                return base_margin
+                
+            mean_ret = sum(returns) / len(returns)
+            var = sum((r - mean_ret)**2 for r in returns) / len(returns)
+            std_dev_pct = math.sqrt(var) * 100.0
+            
+            if std_dev_pct <= 0.1:
+                return base_margin
+                
+            # Inverse volatility multiplier
+            multiplier = getattr(self.config, "volatility_target_hourly_pct", 1.5) / std_dev_pct
+            multiplier = max(getattr(self.config, "volatility_min_multiplier", 0.2), 
+                             min(getattr(self.config, "volatility_max_multiplier", 1.5), multiplier))
+            
+            adjusted = base_margin * multiplier
+            log.info("Vol-Sizing %s: hourly_std=%.2f%%, target=%.2f%%, mult=%.2fx -> margin=$%.0f", 
+                     instrument, std_dev_pct, getattr(self.config, "volatility_target_hourly_pct", 1.5), multiplier, adjusted)
+            return adjusted
+        except Exception as e:
+            log.warning("Volatility sizing failed for %s: %s", instrument, e)
+            return base_margin
+
+    def _compute_entry_margin(self, instrument: str = None) -> float:
         """Return the margin budget available for the next entry."""
         effective_margin = self._effective_margin_per_slot()
         if effective_margin <= 0:
@@ -1615,7 +1674,12 @@ class WolfRunner:
             remaining_portfolio = max(self._portfolio_gate.approved_capital_usd - used_margin, 0.0)
 
         remaining = min(remaining_allocation, remaining_portfolio)
-        return min(effective_margin, remaining)
+        base_allowed = min(effective_margin, remaining)
+        
+        if instrument and getattr(self.config, "volatility_sizing_enabled", False):
+            return self._apply_volatility_sizing(instrument, base_allowed)
+            
+        return base_allowed
 
     def _print_status(self) -> None:
         """Print current WOLF status."""

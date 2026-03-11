@@ -15,6 +15,12 @@ class WolfConfig:
     leverage: float = 10.0
     margin_per_slot: float = 0.0  # auto-computed
 
+    # Volatility-Adjusted Sizing
+    volatility_sizing_enabled: bool = True
+    volatility_target_hourly_pct: float = 1.5  # target hourly standard dev threshold
+    volatility_min_multiplier: float = 0.2
+    volatility_max_multiplier: float = 1.5
+
     # Entry thresholds
     scanner_score_threshold: int = 170
     movers_immediate_auto_entry: bool = True
